@@ -1,0 +1,379 @@
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pop the Balloon!</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(to bottom, #87CEEB, #E0F7FA); /* Sky background */
+            user-select: none; /* Prevent text selection */
+            touch-action: none; /* Better mobile handling */
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Let clicks pass through to canvas */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .hud {
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            text-shadow: 1px 1px 2px white;
+        }
+
+        #game-over-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            pointer-events: auto; /* Re-enable clicks for the button */
+            z-index: 10;
+        }
+
+        #game-over-screen.hidden {
+            display: none;
+        }
+
+        h1 {
+            font-size: 48px;
+            margin-bottom: 10px;
+            color: #FFD700;
+            text-shadow: 2px 2px 4px #000;
+        }
+
+        p {
+            font-size: 24px;
+            margin-bottom: 30px;
+        }
+
+        button {
+            padding: 15px 40px;
+            font-size: 24px;
+            background-color: #ff4757;
+            color: white;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            transition: transform 0.1s;
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Game UI -->
+    <div id="ui-layer">
+        <div class="hud">
+            <div>Score: <span id="score">0</span></div>
+            <div>High Score: <span id="highScore">0</span></div>
+            <div style="color: #d63031;">Lives: <span id="lives">5</span></div>
+        </div>
+    </div>
+
+    <!-- Game Over / Start Screen -->
+    <div id="game-over-screen">
+        <h1 id="screen-title">POP THE BALLOON</h1>
+        <p id="final-score-text">Click Start to Play!</p>
+        <button id="start-btn" onclick="startGame()">START GAME</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // UI Elements
+        const scoreEl = document.getElementById('score');
+        const highScoreEl = document.getElementById('highScore');
+        const livesEl = document.getElementById('lives');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const finalScoreText = document.getElementById('final-score-text');
+        const screenTitle = document.getElementById('screen-title');
+        const startBtn = document.getElementById('start-btn');
+
+        // Audio Context for synthesizing pop sounds (No external files needed)
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const audioCtx = new AudioContext();
+
+        // Game State Variables
+        let balloons = [];
+        let particles = []; // For pop effect
+        let score = 0;
+        let lives = 5;
+        let gameRunning = false;
+        let spawnRate = 60; // Frames between spawns
+        let frameCount = 0;
+        let speedMultiplier = 1.0;
+        let animationId;
+
+        // Load High Score
+        let highScore = localStorage.getItem('balloonHighScore') || 0;
+        highScoreEl.innerText = highScore;
+
+        // Resize Canvas to fit screen
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Colors for balloons
+        const colors = ['#ff4757', '#2ed573', '#1e90ff', '#ffa502', '#9b59b6', '#ff6b81'];
+
+        // --- Sound Effect Generator ---
+        function playPopSound() {
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            oscillator.type = 'sine';
+            // Pitch drop effect (Pop sound)
+            oscillator.frequency.setValueAtTime(400, audioCtx.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.1);
+
+            gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + 0.1);
+        }
+
+        // --- Game Classes ---
+
+        class Balloon {
+            constructor() {
+                this.radius = Math.random() * 20 + 30; // Size between 30 and 50
+                this.x = Math.random() * (canvas.width - this.radius * 2) + this.radius;
+                this.y = canvas.height + this.radius;
+                this.color = colors[Math.floor(Math.random() * colors.length)];
+                // Speed increases based on speedMultiplier
+                this.speed = (Math.random() * 2 + 1) * speedMultiplier;
+                this.markedForDeletion = false;
+            }
+
+            update() {
+                this.y -= this.speed;
+                // Check if balloon missed (went off top screen)
+                if (this.y < -this.radius) {
+                    this.markedForDeletion = true;
+                    loseLife();
+                }
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                
+                // Shine effect
+                ctx.beginPath();
+                ctx.arc(this.x - this.radius/3, this.y - this.radius/3, this.radius/4, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255,255,255,0.5)';
+                ctx.fill();
+                
+                // String
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y + this.radius);
+                ctx.lineTo(this.x, this.y + this.radius + 20);
+                ctx.strokeStyle = '#555';
+                ctx.stroke();
+                ctx.closePath();
+            }
+        }
+
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                this.size = Math.random() * 3 + 1;
+                this.speedX = (Math.random() - 0.5) * 6;
+                this.speedY = (Math.random() - 0.5) * 6;
+                this.life = 1; // Opacity
+            }
+            update() {
+                this.x += this.speedX;
+                this.y += this.speedY;
+                this.life -= 0.05; // Fade out
+            }
+            draw() {
+                ctx.globalAlpha = this.life;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1.0;
+            }
+        }
+
+        // --- Game Logic ---
+
+        function startGame() {
+            gameRunning = true;
+            score = 0;
+            lives = 5;
+            speedMultiplier = 1.0;
+            balloons = [];
+            particles = [];
+            spawnRate = 60;
+            
+            scoreEl.innerText = score;
+            livesEl.innerText = lives;
+            gameOverScreen.classList.add('hidden');
+            
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+
+            animate();
+        }
+
+        function loseLife() {
+            if (!gameRunning) return;
+            lives--;
+            livesEl.innerText = lives;
+            if (lives <= 0) {
+                endGame();
+            }
+        }
+
+        function endGame() {
+            gameRunning = false;
+            cancelAnimationFrame(animationId);
+            
+            // Check High Score
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('balloonHighScore', highScore);
+                highScoreEl.innerText = highScore;
+                screenTitle.innerText = "NEW HIGH SCORE!";
+            } else {
+                screenTitle.innerText = "GAME OVER";
+            }
+
+            finalScoreText.innerText = `Final Score: ${score}`;
+            startBtn.innerText = "PLAY AGAIN";
+            gameOverScreen.classList.remove('hidden');
+        }
+
+        function animate() {
+            if (!gameRunning) return;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            frameCount++;
+
+            // Increase difficulty over time
+            if (frameCount % 600 === 0) { // Every ~10 seconds
+                speedMultiplier += 0.2;
+                if (spawnRate > 20) spawnRate -= 2; // Spawn faster
+            }
+
+            // Spawn Balloons
+            if (frameCount % spawnRate === 0) {
+                balloons.push(new Balloon());
+            }
+
+            // Update Balloons
+            balloons.forEach((balloon, index) => {
+                balloon.update();
+                balloon.draw();
+                if (balloon.markedForDeletion) {
+                    balloons.splice(index, 1);
+                }
+            });
+
+            // Update Particles
+            particles.forEach((particle, index) => {
+                particle.update();
+                particle.draw();
+                if (particle.life <= 0) {
+                    particles.splice(index, 1);
+                }
+            });
+
+            animationId = requestAnimationFrame(animate);
+        }
+
+        // --- Input Handling ---
+
+        function handleInput(e) {
+            if (!gameRunning) return;
+
+            const rect = canvas.getBoundingClientRect();
+            // Handle both touch and mouse click
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+            const clickX = clientX - rect.left;
+            const clickY = clientY - rect.top;
+
+            // Check collision with balloons (iterate backwards to click top one first)
+            for (let i = balloons.length - 1; i >= 0; i--) {
+                const b = balloons[i];
+                const dist = Math.hypot(clickX - b.x, clickY - b.y);
+
+                if (dist < b.radius) {
+                    // Pop!
+                    playPopSound();
+                    score++;
+                    scoreEl.innerText = score;
+
+                    // Create particles
+                    for(let j=0; j<8; j++){
+                        particles.push(new Particle(b.x, b.y, b.color));
+                    }
+
+                    // Remove balloon
+                    balloons.splice(i, 1);
+                    break; // Only pop one per click
+                }
+            }
+        }
+
+        window.addEventListener('mousedown', handleInput);
+        window.addEventListener('touchstart', handleInput);
+
+    </script>
+</body>
+</html>
+```

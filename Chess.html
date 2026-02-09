@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Responsive Chess with Sound & Animation</title>
+    <style>
+        :root {
+            --bg-color: #2c3e50;
+            --board-border: #34495e;
+            --white-sq: #ecf0f1;
+            --black-sq: #95a5a6;
+            --highlight: #f1c40f;
+            --valid-move: rgba(46, 204, 113, 0.6);
+            --piece-color-white: #fff;
+            --piece-color-black: #000;
+            --piece-stroke-white: #000;
+            --piece-stroke-black: #fff;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden; /* Prevent scrolling on mobile */
+        }
+
+        header {
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        #status {
+            font-size: 1.2rem;
+            margin-top: 5px;
+            font-weight: bold;
+        }
+
+        #board {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            grid-template-rows: repeat(8, 1fr);
+            width: 90vmin;
+            height: 90vmin;
+            max-width: 600px;
+            max-height: 600px;
+            border: 5px solid var(--board-border);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .square {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 8vmin; /* Responsive font size */
+            cursor: pointer;
+            position: relative;
+        }
+
+        @media (min-width: 600px) {
+            .square { font-size: 50px; }
+        }
+
+        .white-sq { background-color: var(--white-sq); color: var(--black-sq); }
+        .black-sq { background-color: var(--black-sq); color: var(--white-sq); }
+
+        .selected {
+            background-color: var(--highlight) !important;
+        }
+
+        .valid-target::after {
+            content: '';
+            position: absolute;
+            width: 30%;
+            height: 30%;
+            background-color: var(--valid-move);
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+
+        .piece {
+            cursor: grab;
+            z-index: 2;
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        
+        /* Piece Styling */
+        .piece.white { color: var(--piece-color-white); text-shadow: 0 0 2px var(--piece-stroke-white); }
+        .piece.black { color: var(--piece-color-black); text-shadow: 0 0 2px var(--piece-stroke-black); }
+
+        /* Animations */
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.2); opacity: 0.4; }
+            100% { transform: scale(1); opacity: 0.8; }
+        }
+
+        @keyframes move-anim {
+            0% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+
+        .moved {
+            animation: move-anim 0.3s ease-out;
+        }
+
+        /* Controls */
+        .controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 1rem;
+            border: none;
+            border-radius: 5px;
+            background-color: #e74c3c;
+            color: white;
+            cursor: pointer;
+            box-shadow: 0 4px 0 #c0392b;
+        }
+
+        button:active {
+            transform: translateY(4px);
+            box-shadow: none;
+        }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>JS Chess</h1>
+        <div id="status">White's Turn</div>
+    </header>
+
+    <div id="board"></div>
+
+    <div class="controls">
+        <button onclick="resetGame()">Reset Game</button>
+    </div>
+
+<script>
+    // --- Audio Context for generating sounds without external files ---
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    function playSound(type) {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+
+        const now = audioCtx.currentTime;
+
+        if (type === 'move') {
+            // Soft "thud"
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(300, now);
+            osc.frequency.exponentialRampToValueAtTime(50, now + 0.1);
+            gainNode.gain.setValueAtTime(0.5, now);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+            osc.start(now);
+            osc.stop(now + 0.1);
+        } else if (type === 'capture') {
+            // Sharp "crack"
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(600, now);
+            osc.frequency.exponentialRampToValueAtTime(100, now + 0.15);
+            gainNode.gain.setValueAtTime(0.6, now);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+            osc.start(now);
+            osc.stop(now + 0.15);
+        } else if (type === 'invalid') {
+            // Low buzz
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(150, now);
+            gainNode.gain.setValueAtTime(0.3, now);
+            gainNode.gain.linearRampToValueAtTime(0.01, now + 0.1);
+            osc.start(now);
+            osc.stop(now + 0.1);
+        }
+    }
+
+    // --- Game Logic ---
+
+    const boardElement = document.getElementById('board');
+    const statusElement = document.getElementById('status');
+    
+    // Unicode Chess Pieces
+    const pieces = {
+        white: { k: '♔', q: '♕', r: '♖', b: '♗', n: '♘', p: '♙' },
+        black: { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟' }
+    };
+
+    let board = [];
+    let turn = 'white';
+    let selectedSquare = null;
+
+    function initBoard() {
+        // Standard Chess Setup
+        const initialSetup = [
+            ['r','n','b','q','k','b','n','r'],
+            ['p','p','p','p','p','p','p','p'],
+            [null,null,null,null,null,null,null,null],
+            [null,null,null,null,null,null,null,null],
+            [null,null,null,null,null,null,null,null],
+            [null,null,null,null,null,null,null,null],
+            ['P','P','P','P','P','P','P','P'],
+            ['R','N','B','Q','K','B','N','R']
+        ];
+        
+        // Deep copy to reset correctly
+        board = initialSetup.map(row => row.map(cell => {
+             if (!cell) return null;
+             const color = cell === cell.toUpperCase() ? 'white' : 'black';
+             return { type: cell.toLowerCase(), color: color };
+        }));
+
+        turn = 'white';
+        selectedSquare = null;
+        renderBoard();
+        updateStatus();
+    }
+
+    function renderBoard() {
+        boardElement.innerHTML = '';
+        
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                const square = document.createElement('div');
+                square.className = `square ${(r + c) % 2 === 0 ? 'white-sq' : 'black-sq'}`;
+                square.dataset.row = r;
+                square.dataset.col = c;
+                square.onclick = () => handleSquareClick(r, c);
+
+                const piece = board[r][c];
+                if (piece) {
+                    const span = document.createElement('span');
+                    span.className = `piece ${piece.color}`;
+                    span.textContent = pieces[piece.color][piece.type];
+                    square.appendChild(span);
+                }
+
+                if (selectedSquare && selectedSquare.r === r && selectedSquare.c === c) {
+                    square.classList.add('selected');
+                }
+
+                // Highlight valid moves if a piece is selected
+                if (selectedSquare && isValidMove(selectedSquare.r, selectedSquare.c, r, c, board[selectedSquare.r][selectedSquare.c])) {
+                    square.classList.add('valid-target');
+                }
+
+                boardElement.appendChild(square);
+            }
+        }
+    }
+
+    function handleSquareClick(r, c) {
+        const clickedPiece = board[r][c];
+        const isSameSide = clickedPiece && clickedPiece.color === turn;
+
+        // 1. Select a piece
+        if (isSameSide) {
+            selectedSquare = { r, c };
+            playSound('move'); // subtle click sound for selection
+            renderBoard();
+            return;
+        }
+
+        // 2. Move to a square (if a piece is already selected)
+        if (selectedSquare) {
+            const fromR = selectedSquare.r;
+            const fromC = selectedSquare.c;
+            const pieceToMove = board[fromR][fromC];
+
+            if (isValidMove(fromR, fromC, r, c, pieceToMove)) {
+                // Execute Move
+                const isCapture = board[r][c] !== null;
+                
+                board[r][c] = pieceToMove;
+                board[fromR][fromC] = null;
+                
+                // Pawn Promotion (Auto to Queen for simplicity)
+                if (pieceToMove.type === 'p' && (r === 0 || r === 7)) {
+                    pieceToMove.type = 'q';
+                }
+
+                turn = turn === 'white' ? 'black' : 'white';
+                selectedSquare = null;
+                
+                playSound(isCapture ? 'capture' : 'move');
+                renderBoard();
+                
+                // Add animation class to the destination square
+                const destSquare = document.querySelector(`.square[data-row="${r}"][data-col="${c}"] .piece`);
+                if(destSquare) destSquare.classList.add('moved');
+
+                updateStatus();
+            } else {
+                playSound('invalid');
+                // Optional: Shake animation could go here
+                selectedSquare = null; // Deselect on invalid click
+                renderBoard();
+            }
+        }
+    }
+
+    function updateStatus() {
+        statusElement.textContent = `${turn.charAt(0).toUpperCase() + turn.slice(1)}'s Turn`;
+    }
+
+    // --- Validation Logic ---
+    function isValidMove(r1, c1, r2, c2, piece) {
+        if (r1 === r2 && c1 === c2) return false;
+        
+        // Destination check (cannot eat own piece)
+        const dest = board[r2][c2];
+        if (dest && dest.color === piece.color) return false;
+
+        const dr = r2 - r1;
+        const dc = c2 - c1;
+        const absDr = Math.abs(dr);
+        const absDc = Math.abs(dc);
+
+        switch (piece.type) {
+            case 'p': // Pawn
+                const direction = piece.color === 'white' ? -1 : 1;
+                const startRow = piece.color === 'white' ? 6 : 1;
+                
+                // Move forward 1
+                if (c1 === c2 && r2 === r1 + direction && !dest) return true;
+                // Move forward 2
+                if (c1 === c2 && r1 === startRow && r2 === r1 + 2 * direction && !dest && !board[r1 + direction][c1]) return true;
+                // Capture
+                if (Math.abs(c1 - c2) === 1 && r2 === r1 + direction && dest && dest.color !== piece.color) return true;
+                return false;
+
+            case 'r': // Rook
+                if (dr !== 0 && dc !== 0) return false;
+                return isPathClear(r1, c1, r2, c2);
+
+            case 'b': // Bishop
+                if (absDr !== absDc) return false;
+                return isPathClear(r1, c1, r2, c2);
+
+            case 'q': // Queen
+                if (dr !== 0 && dc !== 0 && absDr !== absDc) return false;
+                return isPathClear(r1, c1, r2, c2);
+
+            case 'n': // Knight
+                return (absDr === 2 && absDc === 1) || (absDr === 1 && absDc === 2);
+
+            case 'k': // King (Simple logic, no castling/check logic for simplicity)
+                return absDr <= 1 && absDc <= 1;
+
+            default: return false;
+        }
+    }
+
+    function isPathClear(r1, c1, r2, c2) {
+        const dr = Math.sign(r2 - r1);
+        const dc = Math.sign(c2 - c1);
+        
+        let r = r1 + dr;
+        let c = c1 + dc;
+
+        while (r !== r2 || c !== c2) {
+            if (board[r][c]) return false;
+            r += dr;
+            c += dc;
+        }
+        return true;
+    }
+
+    function resetGame() {
+        initBoard();
+    }
+
+    // Initialize
+    initBoard();
+
+</script>
+</body>
+</html>
