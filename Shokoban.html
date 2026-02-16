@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Sokoban Color</title>
+    <style>
+        :root {
+            --bg-color: #2c3e50;
+            --game-bg: #34495e;
+            --accent: #e74c3c;
+            --text: #ecf0f1;
+            --btn-bg: #e67e22;
+            --btn-shadow: #d35400;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+            touch-action: none; /* Prevent scroll on mobile */
+        }
+
+        h1 { margin: 10px 0 5px; font-size: 1.5rem; text-transform: uppercase; letter-spacing: 2px; text-shadow: 2px 2px 0px #000; }
+        
+        .hud {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 10px;
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+
+        #game-container {
+            position: relative;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border-radius: 8px;
+            overflow: hidden;
+            background: var(--game-bg);
+        }
+
+        canvas {
+            display: block;
+        }
+
+        /* Mobile Controls */
+        .controls {
+            display: none; /* Hidden on desktop by default, shown via media query or JS detection */
+            margin-top: 20px;
+            grid-template-columns: repeat(3, 60px);
+            grid-template-rows: repeat(2, 60px);
+            gap: 10px;
+        }
+
+        .d-pad-btn {
+            width: 60px;
+            height: 60px;
+            background: var(--btn-bg);
+            border-radius: 50%;
+            border: none;
+            box-shadow: 0 4px 0 var(--btn-shadow);
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.1s, box-shadow 0.1s;
+            user-select: none;
+        }
+
+        .d-pad-btn:active {
+            transform: translateY(4px);
+            box-shadow: 0 0 0 var(--btn-shadow);
+        }
+
+        .btn-up { grid-column: 2; grid-row: 1; }
+        .btn-left { grid-column: 1; grid-row: 2; }
+        .btn-down { grid-column: 2; grid-row: 2; }
+        .btn-right { grid-column: 3; grid-row: 2; }
+        
+        #reset-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            box-shadow: 0 3px 0 #c0392b;
+        }
+        #reset-btn:active { transform: translateY(3px); box-shadow: none; }
+
+        /* Level Clear Overlay */
+        #level-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(46, 204, 113, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s;
+        }
+        #level-overlay.active { opacity: 1; pointer-events: all; }
+        #level-overlay h2 { font-size: 3rem; color: white; margin: 0; text-shadow: 2px 2px 0 rgba(0,0,0,0.2); }
+
+        @media (max-width: 800px) {
+            .controls { display: grid; }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Sokoban Color</h1>
+    
+    <div class="hud">
+        <span id="level-display">Level: 1</span>
+        <span id="moves-display">Moves: 0</span>
+    </div>
+
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <button id="reset-btn" onclick="game.resetLevel()">↺ Reset</button>
+        <div id="level-overlay">
+            <h2>AWESOME!</h2>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button class="d-pad-btn btn-up" ontouchstart="game.handleInput('up')" onmousedown="game.handleInput('up')">▲</button>
+        <button class="d-pad-btn btn-left" ontouchstart="game.handleInput('left')" onmousedown="game.handleInput('left')">◀</button>
+        <button class="d-pad-btn btn-down" ontouchstart="game.handleInput('down')" onmousedown="game.handleInput('down')">▼</button>
+        <button class="d-pad-btn btn-right" ontouchstart="game.handleInput('right')" onmousedown="game.handleInput('right')">▶</button>
+    </div>
+
+<script>
+/**
+ * AUDIO ENGINE
+ * Generates synthesized sounds using Web Audio API to avoid external assets.
+ */
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+const Sound = {
+    playTone: (freq, type, duration) => {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+    },
+    move: () => Sound.playTone(150, 'triangle', 0.1),
+    push: () => Sound.playTone(100, 'square', 0.15),
+    win: () => {
+        setTimeout(() => Sound.playTone(400, 'sine', 0.1), 0);
+        setTimeout(() => Sound.playTone(600, 'sine', 0.1), 100);
+        setTimeout(() => Sound.playTone(800, 'sine', 0.2), 200);
+    }
+};
+
+/**
+ * GAME DATA & LOGIC
+ */
+const TILE_SIZE = 50;
+const ANIMATION_SPEED = 0.2; // 0 to 1, higher is faster
+
+// Tile Types: 0:Floor, 1:Wall, 2:Goal
+// Entities are tracked separately
+const LEVELS = [
+    [ // Level 1
+        [1,1,1,1,1],
+        [1,0,0,0,1],
+        [1,0,2,0,1],
+        [1,0,0,0,1],
+        [1,1,1,1,1],
+        // Player Start: {x:1, y:1}, Boxes: [{x:2, y:2}]
+    ],
+    [ // Level 2
+        [1,1,1,1,1,1],
+        [1,0,0,1,2,1],
+        [1,0,0,0,0,1],
+        [1,2,0,1,0,1],
+        [1,0,0,0,0,1],
+        [1,1,1,1,1,1]
+    ],
+    [ // Level 3
+        [0,1,1,1,1,0],
+        [1,1,0,0,1,0],
+        [1,0,2,0,1,1],
+        [1,0,0,2,0,1],
+        [1,0,0,0,0,1],
+        [1,1,1,1,1,1]
+    ]
+];
+
+// Entity configurations for levels (hardcoded for simplicity of this demo)
+const LEVEL_ENTITIES = [
+    { player: {x:1, y:2}, boxes: [{x:2, y:2}] }, // Lvl 1
+    { player: {x:1, y:1}, boxes: [{x:2, y:2}, {x:3, y:3}] }, // Lvl 2
+    { player: {x:2, y:4}, boxes: [{x:3, y:2}, {x:2, y:3}] }  // Lvl 3
+];
+
+class Sokoban {
+    constructor() {
+        this.canvas = document.getElementById('gameCanvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.levelIndex = 0;
+        this.moves = 0;
+        
+        // Logical Grid State
+        this.grid = [];
+        this.player = {x:0, y:0};
+        this.boxes = [];
+        
+        // Visual Animation State
+        this.animPlayer = {x:0, y:0};
+        this.animBoxes = [];
+        
+        this.loadLevel(0);
+        this.lastTime = 0;
+        this.inputLocked = false;
+        
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
+        this.setupInputs();
+        
+        requestAnimationFrame(t => this.loop(t));
+    }
+
+    resize() {
+        // Adjust canvas size based on grid size
+        if(this.grid.length) {
+            this.canvas.width = this.grid[0].length * TILE_SIZE;
+            this.canvas.height = this.grid.length * TILE_SIZE;
+        }
+    }
+
+    loadLevel(idx) {
+        if (idx >= LEVELS.length) idx = 0; // Loop back
+        this.levelIndex = idx;
+        this.moves = 0;
+        
+        // Deep copy grid structure
+        const rawGrid = LEVELS[idx];
+        this.grid = rawGrid.map(row => [...row]);
+        
+        // Load entities
+        const ent = LEVEL_ENTITIES[idx];
+        this.player = {...ent.player};
+        this.boxes = ent.boxes.map(b => ({...b, id: Math.random()})); // ID for animation tracking
+        
+        // Reset Visuals
+        this.animPlayer = {...this.player};
+        this.animBoxes = this.boxes.map(b => ({...b}));
+        
+        this.resize();
+        this.updateHUD();
+        document.getElementById('level-overlay').classList.remove('active');
+        this.inputLocked = false;
+    }
+
+    resetLevel() {
+        this.loadLevel(this.levelIndex);
+    }
+
+    updateHUD() {
+        document.getElementById('level-display').innerText = `Level: ${this.levelIndex + 1}`;
+        document.getElementById('moves-display').innerText = `Moves: ${this.moves}`;
+    }
+
+    handleInput(dir) {
+        if (this.inputLocked) return;
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+
+        let dx = 0, dy = 0;
+        if (dir === 'up') dy = -1;
+        if (dir === 'down') dy = 1;
+        if (dir === 'left') dx = -1;
+        if (dir === 'right') dx = 1;
+
+        const targetX = this.player.x + dx;
+        const targetY = this.player.y + dy;
+
+        // Check Wall Collision
+        if (this.isWall(targetX, targetY)) return;
+
+        // Check Box Collision
+        const boxIndex = this.boxes.findIndex(b => b.x === targetX && b.y === targetY);
+        
+        if (boxIndex !== -1) {
+            // Pushing a box
+            const boxTargetX = targetX + dx;
+            const boxTargetY = targetY + dy;
+            
+            // Check if box destination is blocked (Wall or another Box)
+            if (this.isWall(boxTargetX, boxTargetY) || this.isBox(boxTargetX, boxTargetY)) return;
+            
+            // Move Box
+            this.boxes[boxIndex].x = boxTargetX;
+            this.boxes[boxIndex].y = boxTargetY;
+            Sound.push();
+        } else {
+            Sound.move();
+        }
+
+        // Move Player
+        this.player.x = targetX;
+        this.player.y = targetY;
+        this.moves++;
+        this.updateHUD();
+        this.checkWin();
+    }
+
+    isWall(x, y) {
+        if (y < 0 || y >= this.grid.length || x < 0 || x >= this.grid[0].length) return true;
+        return this.grid[y][x] === 1;
+    }
+
+    isBox(x, y) {
+        return this.boxes.some(b => b.x === x && b.y === y);
+    }
+
+    checkWin() {
+        // A win is when every box is on a Goal tile (2)
+        const allOnGoal = this.boxes.every(b => this.grid[b.y][b.x] === 2);
+        
+        if (allOnGoal) {
+            Sound.win();
+            this.inputLocked = true;
+            document.getElementById('level-overlay').classList.add('active');
+            setTimeout(() => {
+                this.loadLevel(this.levelIndex + 1);
+            }, 1500);
+        }
+    }
+
+    lerp(start, end, amt) {
+        return (1 - amt) * start + amt * end;
+    }
+
+    loop(timestamp) {
+        // Animation Logic: Smoothly interpolate visual position to logical position
+        this.animPlayer.x = this.lerp(this.animPlayer.x, this.player.x, ANIMATION_SPEED);
+        this.animPlayer.y = this.lerp(this.animPlayer.y, this.player.y, ANIMATION_SPEED);
+
+        this.boxes.forEach((box, i) => {
+            // Find corresponding visual box (simple sync since array order doesn't change)
+            if (!this.animBoxes[i]) this.animBoxes[i] = {...box};
+            this.animBoxes[i].x = this.lerp(this.animBoxes[i].x, box.x, ANIMATION_SPEED);
+            this.animBoxes[i].y = this.lerp(this.animBoxes[i].y, box.y, ANIMATION_SPEED);
+        });
+
+        this.draw();
+        requestAnimationFrame(t => this.loop(t));
+    }
+
+    draw() {
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+        // Draw Map
+        for (let y = 0; y < this.grid.length; y++) {
+            for (let x = 0; x < this.grid[y].length; x++) {
+                const cell = this.grid[y][x];
+                const px = x * TILE_SIZE;
+                const py = y * TILE_SIZE;
+
+                // Floor
+                this.ctx.fillStyle = '#34495e';
+                this.ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+
+                if (cell === 1) { // Wall
+                    this.drawWall(px, py);
+                } else if (cell === 2) { // Goal
+                    this.drawGoal(px, py);
+                }
+            }
+        }
+
+        // Draw Boxes
+        this.animBoxes.forEach(b => {
+            const isCompleted = this.grid[Math.round(b.y)][Math.round(b.x)] === 2;
+            this.drawBox(b.x * TILE_SIZE, b.y * TILE_SIZE, isCompleted);
+        });
+
+        // Draw Player
+        this.drawPlayer(this.animPlayer.x * TILE_SIZE, this.animPlayer.y * TILE_SIZE);
+    }
+
+    drawWall(x, y) {
+        this.ctx.fillStyle = '#2c3e50';
+        this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+        // 3D effect
+        this.ctx.fillStyle = '#95a5a6';
+        this.ctx.fillRect(x + 5, y + 5, TILE_SIZE - 10, TILE_SIZE - 10);
+        this.ctx.fillStyle = '#7f8c8d';
+        this.ctx.fillRect(x + 5, y + 30, TILE_SIZE - 10, 5);
+    }
+
+    drawGoal(x, y) {
+        this.ctx.beginPath();
+        this.ctx.arc(x + TILE_SIZE/2, y + TILE_SIZE/2, 8, 0, Math.PI * 2);
+        this.ctx.fillStyle = '#e74c3c'; // Red dot
+        this.ctx.fill();
+        this.ctx.fillStyle = 'rgba(231, 76, 60, 0.3)';
+        this.ctx.beginPath();
+        this.ctx.arc(x + TILE_SIZE/2, y + TILE_SIZE/2, 15, 0, Math.PI * 2);
+        this.ctx.fill();
+    }
+
+    drawBox(x, y, isCompleted) {
+        const color = isCompleted ? '#2ecc71' : '#f1c40f'; // Green if done, Yellow if not
+        this.ctx.fillStyle = '#d35400'; // Shadow
+        this.ctx.fillRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        
+        this.ctx.fillStyle = color;
+        this.ctx.fillRect(x, y, TILE_SIZE - 4, TILE_SIZE - 4);
+        
+        // Inner detail
+        this.ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeRect(x + 8, y + 8, TILE_SIZE - 20, TILE_SIZE - 20);
+    }
+
+    drawPlayer(x, y) {
+        const cx = x + TILE_SIZE / 2;
+        const cy = y + TILE_SIZE / 2;
+
+        // Shadow
+        this.ctx.beginPath();
+        this.ctx.ellipse(cx, cy + 18, 15, 5, 0, 0, Math.PI * 2);
+        this.ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        this.ctx.fill();
+
+        // Body
+        this.ctx.fillStyle = '#3498db';
+        this.ctx.beginPath();
+        this.ctx.arc(cx, cy - 5, 16, 0, Math.PI * 2);
+        this.ctx.fill();
+
+        // Eyes
+        this.ctx.fillStyle = 'white';
+        this.ctx.beginPath();
+        this.ctx.arc(cx - 5, cy - 8, 4, 0, Math.PI * 2);
+        this.ctx.arc(cx + 5, cy - 8, 4, 0, Math.PI * 2);
+        this.ctx.fill();
+        
+        this.ctx.fillStyle = 'black';
+        this.ctx.beginPath();
+        this.ctx.arc(cx - 5, cy - 8, 1.5, 0, Math.PI * 2);
+        this.ctx.arc(cx + 5, cy - 8, 1.5, 0, Math.PI * 2);
+        this.ctx.fill();
+    }
+
+    setupInputs() {
+        document.addEventListener('keydown', (e) => {
+            const map = {
+                'ArrowUp': 'up', 'w': 'up',
+                'ArrowDown': 'down', 's': 'down',
+                'ArrowLeft': 'left', 'a': 'left',
+                'ArrowRight': 'right', 'd': 'right'
+            };
+            if (map[e.key]) this.handleInput(map[e.key]);
+        });
+
+        // Swipe Detection for Mobile
+        let touchStartX = 0;
+        let touchStartY = 0;
+        
+        this.canvas.addEventListener('touchstart', (e) => {
+            touchStartX = e.changedTouches[0].screenX;
+            touchStartY = e.changedTouches[0].screenY;
+        }, {passive: false});
+
+        this.canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            const touchEndX = e.changedTouches[0].screenX;
+            const touchEndY = e.changedTouches[0].screenY;
+            
+            const dx = touchEndX - touchStartX;
+            const dy = touchEndY - touchStartY;
+            
+            if (Math.abs(dx) > Math.abs(dy)) {
+                if (Math.abs(dx) > 30) this.handleInput(dx > 0 ? 'right' : 'left');
+            } else {
+                if (Math.abs(dy) > 30) this.handleInput(dy > 0 ? 'down' : 'up');
+            }
+        }, {passive: false});
+    }
+}
+
+// Initialize Game
+const game = new Sokoban();
+
+</script>
+</body>
+</html>
