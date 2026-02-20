@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Sky Balloon Adventure</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        body {
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a2e;
+            touch-action: none; /* Prevents pull-to-refresh and scroll gestures */
+            position: fixed;
+            width: 100%;
+            height: 100%;
+        }
+        
+        #gameCanvas {
+            display: block;
+            cursor: pointer;
+            touch-action: none; /* Ensures touches go to the game, not the browser */
+        }
+        
+        #ui {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Let clicks pass through empty UI areas to the canvas */
+        }
+        
+        #score {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 2.5em;
+            font-weight: bold;
+            color: white;
+            text-shadow: 2px 2px 8px rgba(0,0,0,0.5), 0 0 20px rgba(255,200,100,0.5);
+            z-index: 10;
+            user-select: none;
+        }
+        
+        #highScore {
+            position: absolute;
+            top: 70px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 1em;
+            color: rgba(255,255,255,0.7);
+            text-shadow: 1px 1px 4px rgba(0,0,0,0.5);
+            user-select: none;
+        }
+        
+        .screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: linear-gradient(180deg, 
+                rgba(255,150,100,0.95) 0%, 
+                rgba(255,200,150,0.95) 30%,
+                rgba(150,200,255,0.95) 70%,
+                rgba(100,150,200,0.95) 100%);
+            pointer-events: auto; /* Re-enable clicks for menus */
+            z-index: 100;
+        }
+        
+        .screen.hidden {
+            display: none;
+        }
+        
+        .title {
+            font-size: 3em;
+            font-weight: bold;
+            color: #2d3436;
+            text-shadow: 3px 3px 0 #fff, 6px 6px 0 rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .subtitle {
+            font-size: 1.2em;
+            color: #2d3436;
+            margin-bottom: 40px;
+            text-align: center;
+            opacity: 0.8;
+        }
+        
+        .btn {
+            padding: 20px 60px;
+            font-size: 1.5em;
+            font-weight: bold;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            color: white;
+            box-shadow: 0 6px 20px rgba(238,90,36,0.4), 0 4px 0 #c44569;
+            transition: transform 0.1s;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            -webkit-appearance: none;
+            outline: none;
+        }
+        
+        .btn:active {
+            transform: translateY(2px) scale(0.98);
+            box-shadow: 0 2px 10px rgba(238,90,36,0.4), 0 2px 0 #c44569;
+        }
+        
+        .finalScore {
+            font-size: 4em;
+            font-weight: bold;
+            color: #2d3436;
+            margin: 20px 0;
+        }
+        
+        .instructions {
+            font-size: 1.1em;
+            color: #2d3436;
+            margin-top: 30px;
+            text-align: center;
+            line-height: 1.8;
+            opacity: 0.9;
+        }
+        
+        .instructions span {
+            display: inline-block;
+            background: rgba(255,255,255,0.5);
+            padding: 5px 15px;
+            border-radius: 20px;
+            margin: 3px;
+        }
+        
+        #soundBtn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            border: none;
+            background: rgba(255,255,255,0.3);
+            cursor: pointer;
+            pointer-events: auto; /* Enable click for this button specifically */
+            z-index: 200;
+            font-size: 1.5em;
+            outline: none;
+        }
+        
+        #soundBtn:active {
+            background: rgba(255,255,255,0.5);
+            transform: scale(0.95);
+        }
+
+        @media (max-width: 600px) {
+            .title { font-size: 2.2em; }
+            .instructions { font-size: 0.9em; }
+            .btn { padding: 15px 40px; font-size: 1.2em; }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="ui">
+        <div id="score">0</div>
+        <div id="highScore">Best: 0</div>
+        
+        <button id="soundBtn">🔊</button>
+        
+        <div id="startScreen" class="screen">
+            <div class="title">Sky Balloon Adventure</div>
+            <div class="subtitle">Navigate through the clouds!</div>
+            <button class="btn" id="startBtn">Play</button>
+            <div class="instructions">
+                <span>Hold to Rise</span>
+                <span>Release to Fall</span><br>
+                <span>Avoid Birds</span>
+                <span>Collect Stars</span>
+            </div>
+        </div>
+        
+        <div id="gameOverScreen" class="screen hidden">
+            <div class="title">Game Over</div>
+            <div class="finalScore" id="finalScore">0</div>
+            <button class="btn" id="restartBtn">Play Again</button>
+        </div>
+    </div>
+    
+    <script>
+        // Canvas setup
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+        
+        // Game state
+        let gameState = 'start';
+        let score = 0;
+        let highScore = parseInt(localStorage.getItem('balloonHighScore') || '0');
+        let soundEnabled = true;
+        
+        // Audio context
+        let audioCtx = null;
+        
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+        
+        // Sound effects
+        const sounds = {
+            whoosh: () => {
+                if (!soundEnabled || !audioCtx) return;
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                const filter = audioCtx.createBiquadFilter();
+                
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(200, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(400, audioCtx.currentTime + 0.1);
+                osc.frequency.exponentialRampToValueAtTime(150, audioCtx.currentTime + 0.3);
+                
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(800, audioCtx.currentTime);
+                
+                gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                
+                osc.connect(filter);
+                filter.connect(gain);
+                gain.connect(audioCtx.destination);
+                
+                osc.start(audioCtx.currentTime);
+                osc.stop(audioCtx.currentTime + 0.3);
+            },
+            
+            collect: () => {
+                if (!soundEnabled || !audioCtx) return;
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.1);
+                osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.2);
+                
+                gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+                
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                
+                osc.start(audioCtx.currentTime);
+                osc.stop(audioCtx.currentTime + 0.2);
+            },
+            
+            hit: () => {
+                if (!soundEnabled || !audioCtx) return;
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(200, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.3);
+                
+                gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                
+                osc.start(audioCtx.currentTime);
+                osc.stop(audioCtx.currentTime + 0.3);
+            }
+        };
+        
+        // Balloon
+        const balloon = {
+            x: 0,
+            y: 0,
+            vy: 0,
+            width: 60,
+            height: 80,
+            rising: false,
+            flapPhase: 0,
+            
+            reset() {
+                this.x = canvas.width * 0.2;
+                this.y = canvas.height / 2;
+                this.vy = 0;
+                this.rising = false;
+            },
+            
+            update(dt) {
+                const gravity = 800;
+                const lift = -1500;
+                const maxVy = 500;
+                
+                if (this.rising) {
+                    this.vy += lift * dt;
+                } else {
+                    this.vy += gravity * dt;
+                }
+                
+                this.vy = Math.max(-maxVy, Math.min(maxVy, this.vy));
+                this.y += this.vy * dt;
+                
+                if (this.y < 50) {
+                    this.y = 50;
+                    this.vy = 0;
+                }
+                if (this.y > canvas.height - 50) {
+                    this.y = canvas.height - 50;
+                    this.vy = 0;
+                }
+                
+                this.flapPhase += dt * (this.rising ? 15 : 5);
+            },
+            
+            draw() {
+                const x = this.x;
+                const y = this.y;
+                
+                // Rope
+                ctx.strokeStyle = '#8b7355';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(x, y + 35);
+                ctx.lineTo(x, y + 55);
+                ctx.stroke();
+                
+                // Basket
+                ctx.fillStyle = '#d4a574';
+                ctx.strokeStyle = '#8b7355';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.roundRect(x - 20, y + 55, 40, 25, 5);
+                ctx.fill();
+                ctx.stroke();
+                
+                // Basket weave
+                ctx.strokeStyle = '#c4946a';
+                ctx.lineWidth = 1;
+                for (let i = 0; i < 4; i++) {
+                    ctx.beginPath();
+                    ctx.moveTo(x - 18, y + 60 + i * 5);
+                    ctx.lineTo(x + 18, y + 60 + i * 5);
+                    ctx.stroke();
+                }
+                
+                // Balloon body gradient
+                const grad = ctx.createRadialGradient(x - 10, y - 20, 5, x, y, 45);
+                grad.addColorStop(0, '#ff9f43');
+                grad.addColorStop(0.3, '#ee5a24');
+                grad.addColorStop(0.7, '#e55039');
+                grad.addColorStop(1, '#b33939');
+                
+                // Balloon shape
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.ellipse(x, y, 35, 45, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Highlight
+                ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                ctx.beginPath();
+                ctx.ellipse(x - 12, y - 15, 12, 18, -0.3, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Stripes
+                ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(x - 20, y - 35);
+                ctx.quadraticCurveTo(x - 25, y, x - 15, y + 30);
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.moveTo(x + 20, y - 35);
+                ctx.quadraticCurveTo(x + 25, y, x + 15, y + 30);
+                ctx.stroke();
+                
+                // Tie
+                ctx.fillStyle = '#b33939';
+                ctx.beginPath();
+                ctx.moveTo(x - 10, y + 35);
+                ctx.quadraticCurveTo(x, y + 45, x + 10, y + 35);
+                ctx.closePath();
+                ctx.fill();
+                
+                // Flame
+                if (this.rising) {
+                    const flameHeight = 15 + Math.sin(this.flapPhase) * 5;
+                    const flameGrad = ctx.createRadialGradient(x, y + 50, 2, x, y + 50 + flameHeight/2, flameHeight);
+                    flameGrad.addColorStop(0, '#fff7e6');
+                    flameGrad.addColorStop(0.3, '#ffd93d');
+                    flameGrad.addColorStop(0.7, '#ff9f43');
+                    flameGrad.addColorStop(1, 'rgba(255,100,50,0)');
+                    
+                    ctx.fillStyle = flameGrad;
+                    ctx.beginPath();
+                    ctx.moveTo(x - 8, y + 50);
+                    ctx.quadraticCurveTo(x, y + 50 - flameHeight, x + 8, y + 50);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+            },
+            
+            getBounds() {
+                return {
+                    x: this.x - 25,
+                    y: this.y - 40,
+                    width: 50,
+                    height: 100
+                };
+            }
+        };
+        
+        // Obstacles
+        class Bird {
+            constructor() {
+                this.x = canvas.width + 50;
+                this.y = Math.random() * (canvas.height - 200) + 100;
+                this.speed = 200 + Math.random() * 150 + score * 2;
+                this.wingPhase = Math.random() * Math.PI * 2;
+                this.size = 25 + Math.random() * 15;
+                this.color = `hsl(${Math.random() * 60 + 180}, 60%, ${40 + Math.random() * 20}%)`;
+            }
+            
+            update(dt) {
+                this.x -= this.speed * dt;
+                this.wingPhase += dt * 12;
+                return this.x > -50;
+            }
+            
+            draw() {
+                const wingOffset = Math.sin(this.wingPhase) * 10;
+                ctx.fillStyle = this.color;
+                ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+                ctx.lineWidth = 1;
+                
+                // Body
+                ctx.beginPath();
+                ctx.ellipse(this.x, this.y, this.size * 0.6, this.size * 0.3, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+                
+                // Wings
+                ctx.beginPath();
+                ctx.moveTo(this.x - 5, this.y);
+                ctx.quadraticCurveTo(this.x, this.y - this.size * 0.8 + wingOffset, this.x + 10, this.y - 2);
+                ctx.quadraticCurveTo(this.x, this.y - this.size * 0.5 + wingOffset * 0.5, this.x - 5, this.y);
+                ctx.fill();
+                
+                ctx.beginPath();
+                ctx.moveTo(this.x - 5, this.y);
+                ctx.quadraticCurveTo(this.x, this.y + this.size * 0.8 - wingOffset, this.x + 10, this.y + 2);
+                ctx.quadraticCurveTo(this.x, this.y + this.size * 0.5 - wingOffset * 0.5, this.x - 5, this.y);
+                ctx.fill();
+                
+                // Head
+                ctx.beginPath();
+                ctx.arc(this.x + this.size * 0.4, this.y, this.size * 0.25, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Beak
+                ctx.fillStyle = '#f39c12';
+                ctx.beginPath();
+                ctx.moveTo(this.x + this.size * 0.6, this.y);
+                ctx.lineTo(this.x + this.size * 0.9, this.y + 2);
+                ctx.lineTo(this.x + this.size * 0.6, this.y + 4);
+                ctx.closePath();
+                ctx.fill();
+                
+                // Eye
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.arc(this.x + this.size * 0.5, this.y - 2, 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            getBounds() {
+                return {
+                    x: this.x - this.size * 0.5,
+                    y: this.y - this.size * 0.5,
+                    width: this.size,
+                    height: this.size
+                };
+            }
+        }
+        
+        class Star {
+            constructor() {
+                this.x = canvas.width + 30;
+                this.y = Math.random() * (canvas.height - 200) + 100;
+                this.speed = 150 + score;
+                this.size = 20;
+                this.rotation = 0;
+                this.glowPhase = Math.random() * Math.PI * 2;
+            }
+            
+            update(dt) {
+                this.x -= this.speed * dt;
+                this.rotation += dt * 3;
+                this.glowPhase += dt * 5;
+                return this.x > -30;
+            }
+            
+            draw() {
+                const glow = 0.5 + Math.sin(this.glowPhase) * 0.3;
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation);
+                
+                ctx.shadowColor = '#ffd700';
+                ctx.shadowBlur = 15 + glow * 10;
+                
+                ctx.fillStyle = '#ffd700';
+                ctx.beginPath();
+                for (let i = 0; i < 5; i++) {
+                    const angle = (i * 4 * Math.PI) / 5 - Math.PI / 2;
+                    const r = this.size;
+                    if (i === 0) ctx.moveTo(r * Math.cos(angle), r * Math.sin(angle));
+                    else ctx.lineTo(r * Math.cos(angle), r * Math.sin(angle));
+                }
+                ctx.closePath();
+                ctx.fill();
+                
+                ctx.fillStyle = '#fff8dc';
+                ctx.beginPath();
+                for (let i = 0; i < 5; i++) {
+                    const angle = (i * 4 * Math.PI) / 5 - Math.PI / 2;
+                    const r = this.size * 0.4;
+                    if (i === 0) ctx.moveTo(r * Math.cos(angle), r * Math.sin(angle));
+                    else ctx.lineTo(r * Math.cos(angle), r * Math.sin(angle));
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.restore();
+            }
+            
+            getBounds() {
+                return { x: this.x - this.size, y: this.y - this.size, width: this.size * 2, height: this.size * 2 };
+            }
+        }
+        
+        class Cloud {
+            constructor(x) {
+                this.x = x || canvas.width + 100;
+                this.y = Math.random() * canvas.height * 0.6;
+                this.speed = 30 + Math.random() * 40;
+                this.size = 50 + Math.random() * 80;
+                this.opacity = 0.3 + Math.random() * 0.4;
+            }
+            
+            update(dt) {
+                this.x -= this.speed * dt;
+                return this.x > -this.size * 2;
+            }
+            
+            draw() {
+                ctx.fillStyle = `rgba(255, 255, 255, ${this.opacity})`;
+                const circles = [
+                    { ox: 0, oy: 0, r: this.size * 0.5 },
+                    { ox: this.size * 0.4, oy: -this.size * 0.1, r: this.size * 0.4 },
+                    { ox: -this.size * 0.4, oy: this.size * 0.1, r: this.size * 0.35 },
+                    { ox: this.size * 0.2, oy: this.size * 0.2, r: this.size * 0.3 },
+                    { ox: -this.size * 0.2, oy: -this.size * 0.15, r: this.size * 0.45 }
+                ];
+                circles.forEach(c => {
+                    ctx.beginPath();
+                    ctx.arc(this.x + c.ox, this.y + c.oy, c.r, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+            }
+        }
+        
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 200;
+                this.vy = (Math.random() - 0.5) * 200;
+                this.life = 1;
+                this.decay = 1 + Math.random();
+                this.size = 3 + Math.random() * 5;
+                this.color = color;
+            }
+            
+            update(dt) {
+                this.x += this.vx * dt;
+                this.y += this.vy * dt;
+                this.vy += 300 * dt;
+                this.life -= this.decay * dt;
+                return this.life > 0;
+            }
+            
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.globalAlpha = this.life;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * this.life, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+        }
+        
+        // Game objects
+        let obstacles = [];
+        let stars = [];
+        let clouds = [];
+        let particles = [];
+        let spawnTimer = 0;
+        let starSpawnTimer = 0;
+        let cloudSpawnTimer = 0;
+        
+        function drawBackground() {
+            const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            const time = Date.now() * 0.0001;
+            
+            grad.addColorStop(0, `hsl(${200 + Math.sin(time) * 20}, 70%, 60%)`);
+            grad.addColorStop(0.3, `hsl(${30 + Math.sin(time + 1) * 15}, 80%, 70%)`);
+            grad.addColorStop(0.6, `hsl(${200 + Math.sin(time + 2) * 10}, 60%, 75%)`);
+            grad.addColorStop(1, `hsl(${210 + Math.sin(time + 3) * 15}, 50%, 50%)`);
+            
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Sun
+            const sunX = canvas.width * 0.8;
+            const sunY = canvas.height * 0.15;
+            const sunGrad = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, 80);
+            sunGrad.addColorStop(0, 'rgba(255, 255, 200, 1)');
+            sunGrad.addColorStop(0.3, 'rgba(255, 220, 100, 0.8)');
+            sunGrad.addColorStop(1, 'rgba(255, 200, 50, 0)');
+            
+            ctx.fillStyle = sunGrad;
+            ctx.beginPath();
+            ctx.arc(sunX, sunY, 80, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        function checkCollision(a, b) {
+            return a.x < b.x + b.width &&
+                   a.x + a.width > b.x &&
+                   a.y < b.y + b.height &&
+                   a.y + a.height > b.y;
+        }
+        
+        function createExplosion(x, y, colors) {
+            for (let i = 0; i < 20; i++) {
+                const color = colors[Math.floor(Math.random() * colors.length)];
+                particles.push(new Particle(x, y, color));
+            }
+        }
+        
+        function resetGame() {
+            balloon.reset();
+            obstacles = [];
+            stars = [];
+            particles = [];
+            score = 0;
+            spawnTimer = 0;
+            starSpawnTimer = 0;
+            document.getElementById('score').textContent = '0';
+        }
+        
+        function gameOver() {
+            gameState = 'over';
+            sounds.hit();
+            
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('balloonHighScore', highScore.toString());
+                document.getElementById('highScore').textContent = `Best: ${highScore}`;
+            }
+            
+            document.getElementById('finalScore').textContent = score;
+            document.getElementById('gameOverScreen').classList.remove('hidden');
+            
+            createExplosion(balloon.x, balloon.y, ['#ff6b6b', '#ffd93d', '#ff9f43', '#fff']);
+        }
+        
+        let lastTime = 0;
+        
+        function gameLoop(timestamp) {
+            const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+            lastTime = timestamp;
+            
+            drawBackground();
+            
+            // Clouds
+            clouds = clouds.filter(c => c.update(dt));
+            cloudSpawnTimer += dt;
+            if (cloudSpawnTimer > 2) {
+                cloudSpawnTimer = 0;
+                clouds.push(new Cloud());
+            }
+            clouds.forEach(c => c.draw());
+            
+            if (gameState === 'playing') {
+                // Spawn
+                spawnTimer += dt;
+                const spawnInterval = Math.max(1.5, 3 - score * 0.02);
+                if (spawnTimer > spawnInterval) {
+                    spawnTimer = 0;
+                    if (Math.random() > 0.3) obstacles.push(new Bird());
+                }
+                
+                starSpawnTimer += dt;
+                if (starSpawnTimer > 2.5) {
+                    starSpawnTimer = 0;
+                    stars.push(new Star());
+                }
+                
+                balloon.update(dt);
+                obstacles = obstacles.filter(o => o.update(dt));
+                stars = stars.filter(s => s.update(dt));
+                
+                const balloonBounds = balloon.getBounds();
+                
+                // Hit detection
+                for (const obs of obstacles) {
+                    if (checkCollision(balloonBounds, obs.getBounds())) {
+                        gameOver();
+                        break;
+                    }
+                }
+                
+                // Star collection
+                stars = stars.filter(star => {
+                    if (checkCollision(balloonBounds, star.getBounds())) {
+                        score++;
+                        document.getElementById('score').textContent = score;
+                        sounds.collect();
+                        createExplosion(star.x, star.y, ['#ffd700', '#fff8dc', '#fff']);
+                        return false;
+                    }
+                    return true;
+                });
+            }
+            
+            particles = particles.filter(p => p.update(dt));
+            
+            obstacles.forEach(o => o.draw());
+            stars.forEach(s => s.draw());
+            balloon.draw();
+            particles.forEach(p => p.draw());
+            
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // --- INPUT HANDLING (Mobile & Desktop) ---
+        
+        function startRising(e) {
+            // e.preventDefault() stops mobile scrolling and mouse text selection
+            if (e.type === 'touchstart' || e.type === 'mousedown') e.preventDefault();
+            
+            if (gameState === 'playing') {
+                balloon.rising = true;
+                sounds.whoosh();
+            }
+        }
+        
+        function stopRising() {
+            balloon.rising = false;
+        }
+        
+        // Mouse events
+        canvas.addEventListener('mousedown', startRising);
+        canvas.addEventListener('mouseup', stopRising);
+        canvas.addEventListener('mouseleave', stopRising);
+        
+        // Touch events
+        canvas.addEventListener('touchstart', startRising, { passive: false });
+        canvas.addEventListener('touchend', stopRising);
+        canvas.addEventListener('touchcancel', stopRising); // Handle interruptions
+        
+        // Keyboard
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && gameState === 'playing') {
+                e.preventDefault();
+                balloon.rising = true;
+                sounds.whoosh();
+            }
+        });
+        document.addEventListener('keyup', (e) => {
+            if (e.code === 'Space') balloon.rising = false;
+        });
+        
+        // --- UI BUTTONS ---
+        
+        document.getElementById('startBtn').addEventListener('click', () => {
+            initAudio();
+            resetGame();
+            gameState = 'playing';
+            document.getElementById('startScreen').classList.add('hidden');
+        });
+        
+        document.getElementById('restartBtn').addEventListener('click', () => {
+            resetGame();
+            gameState = 'playing';
+            document.getElementById('gameOverScreen').classList.add('hidden');
+        });
+        
+        document.getElementById('soundBtn').addEventListener('click', (e) => {
+            e.stopPropagation(); // Don't trigger canvas click
+            soundEnabled = !soundEnabled;
+            document.getElementById('soundBtn').textContent = soundEnabled ? '🔊' : '🔇';
+        });
+        
+        // Init
+        document.getElementById('highScore').textContent = `Best: ${highScore}`;
+        balloon.reset();
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
