@@ -13,7 +13,7 @@
 10. Pong
 11. Pop the Ballon
 12. Rock Paper Scissors
-13. Rubix Cube
+13. 3D Rubix Cube
 14. Shokoban
 15. Sky Ballon Adventure
 16. Snack fruit
