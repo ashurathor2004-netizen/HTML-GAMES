@@ -68,14 +68,14 @@
             opacity: 0.8;
         }
 
-        /* Controls Container - Moved to Bottom Right */
+        /* Controls Container */
         .controls-container {
             pointer-events: auto;
             background: var(--panel-bg);
             backdrop-filter: blur(10px);
             border-radius: 16px;
-            padding: 15px; /* Slightly reduced padding */
-            max-width: 300px; /* Narrower to fit corner better */
+            padding: 15px; 
+            max-width: 300px; 
             width: 100%;
             
             /* Positioning */
@@ -90,7 +90,7 @@
         }
 
         .controls-group {
-            margin-bottom: 12px; /* Reduced margin */
+            margin-bottom: 12px;
             text-align: center;
         }
 
@@ -100,14 +100,14 @@
 
         .label {
             display: block;
-            font-size: 0.75rem; /* Slightly smaller font */
+            font-size: 0.75rem; 
             text-transform: uppercase;
             letter-spacing: 1px;
             margin-bottom: 8px;
             color: #aaa;
         }
 
-        /* Action Buttons (Shuffle/Solve) */
+        /* Action Buttons */
         .action-buttons {
             display: flex;
             gap: 8px;
@@ -118,14 +118,14 @@
         .rotate-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 6px; /* Tighter grid */
+            gap: 6px; 
         }
 
         .rotate-btn {
             background: rgba(255,255,255,0.1);
             border: none;
             color: white;
-            padding: 8px 0; /* Vertical padding only */
+            padding: 8px 0; 
             border-radius: 6px;
             cursor: pointer;
             font-weight: 600;
@@ -175,17 +175,17 @@
 
         .btn-solve:hover { background-color: #d32f2f; }
 
-        /* Camera Controls - Moved to Left for balance */
+        /* Camera Controls */
         .zoom-controls {
             position: absolute;
-            left: 20px; /* Moved from Right to Left */
+            left: 20px; 
             top: 50%;
             transform: translateY(-50%);
             display: flex;
             flex-direction: column;
             gap: 10px;
             pointer-events: auto;
-            right: auto; /* Reset right property */
+            right: auto; 
         }
 
         .zoom-btn {
@@ -227,7 +227,6 @@
         /* Responsive adjustments */
         @media (max-width: 600px) {
             h1 { font-size: 1.4rem; }
-            /* On mobile, keep it right but make it full width minus margins */
             .controls-container { 
                 width: 90%; 
                 right: 5%;
@@ -240,7 +239,6 @@
             }
         }
     </style>
-    <!-- Import Map for Three.js -->
     <script type="importmap">
         {
             "imports": {
@@ -252,10 +250,8 @@
 </head>
 <body>
 
-    <!-- 3D Scene Container -->
     <div id="canvas-container"></div>
 
-    <!-- UI Overlay -->
     <div id="ui-layer">
         <header>
             <h1>Rubik's Cube 3D</h1>
@@ -264,35 +260,30 @@
 
         <div id="status-toast">Ready</div>
 
-        <!-- Left Side Zoom -->
         <div class="zoom-controls">
             <button class="zoom-btn" id="zoom-in" title="Zoom In">+</button>
             <button class="zoom-btn" id="zoom-out" title="Zoom Out">−</button>
         </div>
 
-        <!-- Bottom Right Controls -->
         <div class="controls-container">
             
             <div class="controls-group">
                 <span class="label">Actions</span>
                 <div class="action-buttons">
                     <button class="main-btn btn-shuffle" id="btn-shuffle">Shuffle</button>
-                    <button class="main-btn btn-solve" id="btn-solve">Solve</button>
+                    <button class="main-btn btn-solve" id="btn-reset">Reset</button>
                 </div>
             </div>
 
             <div class="controls-group">
                 <span class="label">Manual Rotation</span>
                 <div class="rotate-grid">
-                    <!-- Row 1 -->
                     <button class="rotate-btn" data-axis="y" data-layer="-1" data-dir="1">L</button>
                     <button class="rotate-btn" data-axis="y" data-layer="0" data-dir="1">M</button>
                     <button class="rotate-btn" data-axis="y" data-layer="1" data-dir="-1">R</button>
-                    <!-- Row 2 -->
                     <button class="rotate-btn" data-axis="x" data-layer="-1" data-dir="-1">U</button>
                     <button class="rotate-btn" data-axis="x" data-layer="0" data-dir="1">E</button>
                     <button class="rotate-btn" data-axis="x" data-layer="1" data-dir="1">D</button>
-                    <!-- Row 3 -->
                     <button class="rotate-btn" data-axis="z" data-layer="-1" data-dir="1">F</button>
                     <button class="rotate-btn" data-axis="z" data-layer="0" data-dir="1">S</button>
                     <button class="rotate-btn" data-axis="z" data-layer="1" data-dir="-1">B</button>
@@ -417,6 +408,7 @@
                         z * (CUBE_SIZE + SPACING)
                     );
                     
+                    // Storing the initial coordinates makes resetting instant and reliable
                     mesh.userData = { initialX: x, initialY: y, initialZ: z };
                     mesh.castShadow = true;
                     mesh.receiveShadow = true;
@@ -432,23 +424,6 @@
         const pivot = new THREE.Object3D();
         pivot.rotation.order = 'XYZ';
         scene.add(pivot);
-
-        async function animateRotation(duration) {
-            return new Promise(resolve => {
-                const start = performance.now();
-                function loop(now) {
-                    const elapsed = now - start;
-                    const progress = Math.min(elapsed / duration, 1);
-                    const ease = progress < 0.5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress;
-                    if (progress < 1) {
-                        requestAnimationFrame(loop);
-                    } else {
-                        resolve();
-                    }
-                }
-                requestAnimationFrame(loop);
-            });
-        }
 
         async function rotateLayer(axis, index, direction, duration = ANIMATION_SPEED, record = true) {
             if (isAnimating) return;
@@ -535,19 +510,29 @@
             showToast("Shuffled!");
         }
 
-        async function solveCube() {
+        // New Instant Reset Function
+        function resetCube() {
             if (isAnimating) return;
             if (moveHistory.length === 0) {
-                showToast("Already Solved");
+                showToast("Already Reset");
                 return;
             }
-            showToast("Solving...");
+            
+            // Loop through all cubies and snap them to their initial states
+            cubies.forEach(cube => {
+                cube.position.set(
+                    cube.userData.initialX * (CUBE_SIZE + SPACING),
+                    cube.userData.initialY * (CUBE_SIZE + SPACING),
+                    cube.userData.initialZ * (CUBE_SIZE + SPACING)
+                );
+                // Reset to default rotation
+                cube.rotation.set(0, 0, 0);
+                cube.updateMatrixWorld();
+            });
 
-            while (moveHistory.length > 0) {
-                const move = moveHistory.pop();
-                await rotateLayer(move.axis, move.index, move.direction * -1, ANIMATION_SPEED, false);
-            }
-            showToast("Solved!");
+            // Clear the history tracking so shuffle/reset state is clean
+            moveHistory = []; 
+            showToast("Cube Reset!");
         }
 
         document.querySelectorAll('.rotate-btn').forEach(btn => {
@@ -560,7 +545,8 @@
         });
 
         document.getElementById('btn-shuffle').addEventListener('click', shuffleCube);
-        document.getElementById('btn-solve').addEventListener('click', solveCube);
+        // Bind the new reset function
+        document.getElementById('btn-reset').addEventListener('click', resetCube);
 
         document.getElementById('zoom-in').addEventListener('click', () => {
             controls.dollyIn(1.2);
